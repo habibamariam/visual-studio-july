@@ -1,0 +1,50 @@
+<template>
+  <div id="app">
+    <MapView :files="dataMapView"></MapView>
+  </div>
+</template>
+
+<script>
+import Navbar from './components/Navbar'
+import MapView from './components/MapView'
+import TrendView from './components/TrendView'
+import CollabView from './components/CollabView'
+import * as d3 from 'd3'
+export default {
+  name: 'app',
+  data() {
+    return {
+      dataMapView: [],
+      dataTrendView: [],
+      dataCollabView: []
+    };
+  },
+  mounted() {
+    let _this = this;
+    d3.json('static/datasets_config.json',(error,raw)=>{
+      if(error){throw error; window.alert(error)}
+      _this.dataMapView = raw['map_datasets'];
+      _this.dataCollabView = raw['collaboration_dataset'];
+      _this.dataTrendView = raw['trend_view'];
+    });
+  },
+  methods: {
+  },
+  components: {
+    Navbar,
+    MapView, CollabView, TrendView
+  }
+}
+</script>
+
+<style>
+body, html, #app {
+  min-height: 100%;
+  height: 100%;
+  font-family: 'Nunito Sans', sans-serif;
+}
+#app{
+  display: flex;
+  flex-flow: column;
+}
+</style>

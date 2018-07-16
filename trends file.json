@@ -1,0 +1,399 @@
+<template>
+  <div class="trend-view">
+    <TrendSvg :width="width" :height="height" :trendLayer="trendLayer" 
+      @mouseover="showTooltip"
+      @mouseout="hideTooltip"
+      @click="dataSelected"
+      @onDeleteLayer="onDeleteLayer"
+    ></TrendSvg>
+    <Tooltip
+      v-if="tooltip_left!=0"
+      :left="tooltip_left"
+      :top="tooltip_top"
+      :content="tooltip_content"
+      :title="tooltip_title"
+    ></Tooltip>
+    <Modal
+      :data="modalData"
+    ></Modal>
+
+    <div class="row filter_layout">
+      <div id="filters" class="pull-right col-2 offset-10" :style="{ height: height+'px'}">
+        <div class="row" style="height:inherit; overflow-y:scroll;">
+          <div class="col-12">
+            <StaggeredQuery
+              :list="listSubjects"
+              @select="onAddLayer"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+
+/**
+ * Create The Trend View
+ * 
+ * @requires d3 - for DOM manipulation
+ * @requires Sugar - for Display
+ * 
+ * @requires cleaning - see helpers documentation
+ * @requires extractSubjects - see helpers documentation
+ * @requires aggregate - see helpers documentation
+ * @requires createTooltip - see helpers documentation
+ * @requires colorScheme - see helpers documentation
+ *
+ * @requires StaggeredQuery - Displays filters (on subjects) on the left
+ * @requires Modal - Display selected data
+ * @requires TrendSvg - SVG rendering
+ * @requires Tooltip - Tooltip (on mouseover)
+ *
+ * @props file - The files (and metadata) to be loaded
+ *
+ * @method mounted - Initialize data and first render
+ * @method onResize - Handle changes on width and height (impact children)
+ * @method initializeData - Filters Metadata on this.file
+ * @method onAddLayer - Add a Layer
+ * @method onDeleteLayer - Remove the layer from this.trendLayer
+ * @method showTooltip - Display Tooltip
+ * @method hideTooltip - Hide Tooltip
+ * @method dataSelected - Show Modal
+ * @method watch-files - If the file changes, start initializeData
+ * @method watch-datasets - If a dataset is addded, compute subject and aggregation
+ *
+ * @child TrendSvg - Important here!
+ *   @param width - binding on width
+ *   @param height - binding on height
+ *   @param trendLayer - PUSHES THE DATA TO THE NEXT COMPONENT
+ *   @param mouseover - event handling
+ *   @param mouseout - event handling 
+ *   @param click - event handling 
+ *   @param onDeleteLayer - event handling 
+ */
+
+
+import TrendSvg from './trend/TrendSvg'
+import Tooltip from './map/Tooltip'
+import StaggeredQuery from './map/StaggeredQuery'
+import Modal from './map/Modal'
+
+import * as d3 from 'd3'
+import * as Sugar from 'sugar'
+
+import cleaning from './helpers/cleaning.js'
+import extractSubjects from './helpers/extractSubjects.js'
+import aggregate from './helpers/aggregate.js'
+import createTooltip from './helpers/createTooltip.js'
+import colorScheme from './helpers/colorScheme.js'
+
+export default {
+  name: 'trend-view',
+  props:['files'],
+  data() {
+    return {
+    	width:10,
+    	height:10,
+      trendLayer:[],
+      indexCounter:0,
+      listSubjects:[],
+      datasets: [],
+      tooltip_left:0,
+      tooltip_top:0,
+      tooltip_content:"WORKING",
+      modalData:'',
+      showAllFilter:false,
+    };
+  },
+  mounted() {
+  	this.width = this.$el.offsetWidth;
+  	this.height = this.$el.offsetHeight;
+  	window.addEventListener('resize', this.onResize);
+    this.onResize();
+    this.colorScheme = colorScheme();
+    this.initializeData();
+  },
+  methods: {
+    onResize:function(){
+      this.width = this.$el.offsetWidth;
+      this.height = this.$el.offsetHeight;
+    },
+    initializeData:function(){
+      if(this.files){
+        this.trendLayer = [];
+        this.datasets = [];
+        this.indexCounter = 0;
+        let _this = this;
+        this.files.forEach(file=>{
+          let filename = file.path.replace(/^.*[\\\/]/, '');
+          if(file.filename){filename=file.filename}
+
+          let name = filename.split('.')[0];
+          if(file.name){name=file.name}
+
+          let nameTitleized = Sugar.String.titleize(name);
+
+          let current_index = this.indexCounter;
+
+          d3.csv(file.path,(error,raw)=>{
+            if(error){throw error; window.alert(error)}
+
+            // Cleaning
+            if(filename in cleaning){
+              raw = cleaning[filename](raw);
+            }
+
+            //Aggregate
+            let data_aggregated = raw;
+            // if(filename in aggregate){
+            //   data_aggregated = aggregate[filename](raw);
+            // }
+
+            // Adding New Layer
+            this.datasets.push({
+              id:current_index,
+              name:nameTitleized,
+              raw:raw,
+              color:'green',
+              filename:filename,
+              subjectField:file.subjectField?file.subjectField:null,
+              aggregateField:file.aggregateField?file.aggregateField:null,
+              sumField:file.sumField?file.sumField:null
+            })
+
+
+            // Aggregate By Year
+            // HARDCODING SUM FIELD - The End...
+            data_aggregated = aggregate.aggregatePerYear(raw,file.sumField);
+            data_aggregated.forEach(d=>{
+              d.info = nameTitleized;
+              d.filename = filename;
+            })
+
+            // Add default view
+            this.trendLayer.push({
+              id:current_index,
+              name:nameTitleized,
+              data:data_aggregated,
+              all:data_aggregated,
+              color:this.colorScheme(Math.random()), 
+              filename:filename
+            })
+          })
+          this.indexCounter = this.indexCounter + 1;
+        })
+      }
+    },
+    onAddLayer: function(item) {
+      //Add the whole dataset
+      if(item.type == 'main'){
+        var currentDataset = this.datasets.filter(a=>a.name==item.text)[0];
+
+        var current_data = currentDataset.raw
+        // HARDCODING SUM FIELD - The End...
+        var data = aggregate.aggregatePerYear(raw,currentDataset.sumField)
+
+
+        data.forEach(d=>{
+          d.info = currentDataset.name;
+          // Hardcoding tooltips content, we'll need the filename
+          d.filename = currentDataset.filename;
+        })
+
+        this.trendLayer.push({
+          id:currentDataset.id,
+          name:currentDataset.name,
+          data:data,
+          all:current_data,
+          color:this.colorScheme(Math.random()),
+          filename:currentDataset.filename,
+          aggregateField:currentDataset.aggregateField
+        })
+      }
+      else{
+        var currentDataset = this.datasets.filter(a=>a.name==item.parent.title)[0]
+        // Add the subset
+        var current_filter = currentDataset.subjectField;
+        var current_data = currentDataset.raw.filter(d=>d[current_filter]==item.text);
+        var data = aggregate.aggregatePerYear(current_data,currentDataset.sumField);
+        data.forEach(d=>{
+          d.info = currentDataset.name;
+          // Hardcoding tooltips content, we'll need the filename
+          d.filename = currentDataset.filename;
+        })        
+        this.trendLayer.push({
+          id:currentDataset.id,
+          name:item.text + ' ('+currentDataset.name+')',
+          data:data,
+          all:current_data,
+          color:this.colorScheme(Math.random()),
+          filename:currentDataset.filename,
+          aggregateField:currentDataset.aggregateField
+        })
+      }
+
+    },
+    onDeleteLayer: function(item) {
+      console.log(item);
+      var index = this.trendLayer.indexOf(item)
+      this.trendLayer.splice(index,1);
+    },
+    showTooltip:function(item){
+      var coordinates = d3.mouse(this.$el);
+      var x = coordinates[0];
+      var y = coordinates[1];
+      this.tooltip_title = item.name;
+      console.log(item)
+
+      this.tooltip_content = item.info+' in '+item.name+': £'+Sugar.Number.abbr(item.value,2);
+      /*
+      // Hardcoding Tooltips....
+      if(item.filename == 'fundings.csv'){
+        this.tooltip_content = item.info+' in '+item.name+': £'+Sugar.Number.abbr(item.value,2);
+      }
+      else if(item.filename == 'fundings_innovate_UK.csv'){
+        this.tooltip_content = item.info+' in '+item.name+': £'+Sugar.Number.abbr(item.value,2);
+      }
+      else {
+        this.tooltip_content = "OH HAI"
+      }
+      */
+      
+      this.tooltip_left = x+10;
+      this.tooltip_top = y-25;
+    },
+    hideTooltip:function(){
+      this.tooltip_top = 0
+      this.tooltip_left = 0
+    },
+    dataSelected:function(d){
+      $('#myModal',this.$el).modal('show')
+      console.log(d)
+      this.modalData = "NO DATA-";
+      this.tooltip_left = 0;
+      if(d.data){
+        this.modalData = d.data;
+      }
+      else{
+        this.modalData = [d]
+      }
+    },
+  },
+  watch: {
+    files:function(){this.initializeData();},
+    datasets:function(){ // Dataset added
+      if(this.datasets){
+        // Find list of subjects per dataset and add them to the sidebar
+        this.listSubjects = [];
+        let _this = this;
+        this.datasets.forEach(function(dataset){
+          if(dataset.subjectField){
+            var subjects = extractSubjects.extract(dataset.raw,dataset.subjectField);
+            _this.listSubjects.push({
+              title:dataset.name,
+              subjects:subjects
+            });
+          }
+          else{
+            _this.listSubjects.push({
+              title:dataset.name,
+              subjects:[]
+            });
+          }
+        })
+        this.listSubjects.sort((a,b)=>a.title>=b.title)
+      }
+    }
+  },
+  filters:{
+      titleize: function(text){
+      return Sugar.String.titleize(text);
+    }
+  },
+  components: {
+    TrendSvg, StaggeredQuery, Tooltip, Modal
+  }
+}
+</script>
+
+<style scoped>
+.trend-view{
+	background-color: black;
+	overflow: hidden;
+  min-height: 100%;
+  position: relative;
+}
+.filter_layout {
+  pointer-events: none;
+  padding:0;
+  margin:0;
+  width: 100%;
+  position: absolute;
+  top: 0;
+}
+.col-sm-12 {
+  /*background-color: red;*/
+}
+#filters {
+  padding: 1em;
+  background-color: rgba(255,255,255,0.8);
+  pointer-events: all;
+  top: 0;
+  position: absolute;
+  /*overflow: scroll;*/
+}
+
+#filters_add {
+  padding: 1em;
+  background-color: rgba(255,255,255,0.6);
+  pointer-events: all;
+  top: 0;
+  position: absolute;
+}
+h5{
+  margin-bottom: 1em;
+  font-size: 1em;
+}
+p{
+  font-size: 11px;
+  margin: 10px 0px;
+}
+
+.trendLayer .destroy {
+  display: none;
+  margin: auto 0;
+  color: #cc9a9a;
+  transition: color 0.2s ease-out;
+  cursor: pointer;
+}
+
+.trendLayer .destroy:hover {
+  color: #af5b5e;
+}
+
+.trendLayer .destroy:after {
+  content: '×';
+}
+
+.trendLayer:hover .destroy {
+  display: inline;
+}
+
+.trendLayer .edit {
+  display: none;
+}
+
+.add_filter {
+  font-size: 10px;
+  color: white;
+  text-align: center;
+  padding: 1em 1em;
+  border-radius: 30px;
+  border-color: #cc0000;
+  background-color: #cc0000;
+  opacity: 0.6;
+}
+
+</style>
